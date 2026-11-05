@@ -82,7 +82,8 @@ def scene_changes(path: str | Path, threshold: float = 0.3, analysis_fps: float 
     """Return [(time_seconds, scene_score)] for detected shot changes.
 
     The video is downsampled (fps + resolution) before scoring, which keeps this
-    fast even on long inputs while still catching cuts and slide changes.
+    fast even on long inputs. Hard cuts score high; slide changes on a shared
+    background score far lower (about 0.04-0.2), so the default threshold misses them.
     """
     vf = (
         f"fps={analysis_fps},scale=320:-2,"
