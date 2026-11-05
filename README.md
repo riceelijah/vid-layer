@@ -37,10 +37,22 @@ pip install -e ".[all]"           # + Whisper speech-to-text, URL download (yt-d
 
 ## Use it
 
-### 1. With Claude Code / Claude Desktop / any MCP client (recommended)
+### 1. Claude Code plugin (recommended)
+
+Needs [`uv`](https://docs.astral.sh/uv/getting-started/installation/) and `ffmpeg` on your PATH. In Claude Code:
+
+```
+/plugin install vidlayer --marketplace riceelijah/vid-layer
+```
+
+Answer `y` to add the marketplace, pick a scope, and you're done. The plugin bundles the MCP server, which `uvx` runs from the plugin folder with no separate `pip install`, plus a `watch-video` skill that tells Claude when and how to use it. Then just ask:
+
+> *What's the UI bug in ~/Videos/demo.mp4 around the 3-minute mark?*
+
+### 2. Any other MCP client (Claude Desktop, Cursor, …)
 
 ```bash
-claude mcp add vidlayer -- vidlayer mcp
+pip install "vidlayer[mcp] @ git+https://github.com/riceelijah/vid-layer"
 ```
 
 Claude Desktop (`claude_desktop_config.json`):
@@ -49,7 +61,7 @@ Claude Desktop (`claude_desktop_config.json`):
 { "mcpServers": { "vidlayer": { "command": "vidlayer", "args": ["mcp"] } } }
 ```
 
-Then just ask: *"Watch ~/Videos/demo.mp4 and tell me what the UI bug is around the 3-minute mark."*
+The server exposes four tools:
 
 | Tool | What it gives the model |
 |---|---|
@@ -58,9 +70,9 @@ Then just ask: *"Watch ~/Videos/demo.mp4 and tell me what the UI bug is around t
 | `get_frame(id, t, max_dim)` | one high-res frame, for reading small text, code, and charts |
 | `get_transcript(id, start, end)` | exact words for a range |
 
-Most of the value comes from this mode. The model can start from a cheap overview and spend image tokens only where it needs detail, instead of you guessing a frame rate up front.
+Most of the value comes from the MCP modes. The model can start from a cheap overview and spend image tokens only where it needs detail, instead of you guessing a frame rate up front.
 
-### 2. Claude Code without MCP
+### 3. Without MCP (file bundle)
 
 ```bash
 vidlayer build demo.mp4 -o demo.vidlayer
@@ -68,7 +80,7 @@ vidlayer build demo.mp4 -o demo.vidlayer
 
 …then: *"Read demo.vidlayer/video.md and the frames it references."* The bundle is plain Markdown + JPEGs, so anything that can read files can use it.
 
-### 3. In your own code (any provider)
+### 4. In your own code (any provider)
 
 ```python
 from vidlayer import VideoDocument, to_anthropic, to_openai, to_gemini
@@ -87,7 +99,7 @@ client.messages.create(model="claude-opus-5-5", max_tokens=16000, messages=[
 {"role": "user", "parts": to_gemini(doc) + [{"text": "..."}]}
 ```
 
-### 4. CLI
+### 5. CLI
 
 ```bash
 vidlayer ask demo.mp4 "What command does she run at the end?"   # needs ANTHROPIC_API_KEY
