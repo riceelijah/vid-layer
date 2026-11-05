@@ -2,17 +2,33 @@
   <img src="assets/banner.png" alt="vidlayer: let any LLM watch a video" width="100%">
 </p>
 
-vidlayer converts a video into timestamped keyframes and a transcript, so models that only accept text and images can work with it. You can use the output directly with Claude, OpenAI-compatible APIs, or Gemini, or run vidlayer as an MCP server and let the model request frames itself.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6ea8fe" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-6ea8fe" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/MCP-server-5eead4" alt="MCP server">
+  <img src="https://img.shields.io/badge/Claude%20Code-plugin-5eead4" alt="Claude Code plugin">
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#mcp-tools">MCP tools</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#other-ways-to-use-it">Other ways to use it</a> ·
+  <a href="#token-cost">Token cost</a> ·
+  <a href="#roadmap">Roadmap</a>
+</p>
+
+vidlayer turns a video into timestamped keyframes and a transcript, so that models which only accept text and images can still work with it. The usual workaround is pasting in a transcript, which loses everything that only appears on screen, like slides, code, and demos. You can run vidlayer as an MCP server and let the model request frames itself, or send the output directly to Claude, OpenAI-compatible APIs, or Gemini.
 
 ## Example
 
-This is the storyboard `open_video` returns for a one-minute sample talk:
+This is the storyboard `open_video` returns for a one-minute sample talk.
 
 <p align="center">
   <img src="assets/storyboard.jpg" alt="Storyboard of eight slides from a sample talk, each labelled with its timestamp" width="100%">
 </p>
 
-The model also gets the transcript, lined up with the frames:
+The model also gets the transcript, lined up with the frames.
 
 ```text
 <video source="talk.mp4" duration="01:04.0" resolution="1920x1080" fps="10.0">
@@ -30,20 +46,20 @@ Transcript:
 
 ## Install
 
-You need [uv](https://docs.astral.sh/uv/getting-started/installation/) on your PATH and [ffmpeg](https://ffmpeg.org/download.html) installed (`brew install ffmpeg` on a Mac). In Claude Code, run:
+You will need [uv](https://docs.astral.sh/uv/getting-started/installation/) on your PATH and [ffmpeg](https://ffmpeg.org/download.html) installed (`brew install ffmpeg` on a Mac). In Claude Code, run the command below.
 
 ```text
 /plugin install vidlayer --marketplace riceelijah/vid-layer
 ```
 
-On Claude Code older than 2.1.275, add the marketplace first:
+On a version of Claude Code older than 2.1.275, add the marketplace first.
 
 ```text
 /plugin marketplace add riceelijah/vid-layer
 /plugin install vidlayer@vid-layer
 ```
 
-The plugin includes the MCP server and a `watch-video` skill. Once it's installed, ask about a video by its path:
+The plugin includes the MCP server and a `watch-video` skill. Once it's installed, you can ask about a video by giving its path.
 
 ```text
 What's the UI bug in ~/Videos/demo.mp4 around the 3-minute mark?
@@ -58,7 +74,7 @@ What's the UI bug in ~/Videos/demo.mp4 around the 3-minute mark?
 | `get_frame(id, t, max_dim)` | One high-resolution frame, useful for small text, code, and charts |
 | `get_transcript(id, start, end)` | The transcript for a time range |
 
-A model usually starts with `open_video`, then requests frames for the parts it needs.
+A model usually starts with `open_video` and then requests frames for the parts it needs, which keeps image tokens focused on the moments that matter.
 
 ## How it works
 
@@ -76,23 +92,23 @@ flowchart LR
     DOC --> F[Markdown + JPEG bundle]
 ```
 
-ffmpeg's scene detector runs on a downscaled copy of the video to find cuts and slide changes. vidlayer keeps the strongest ones that fit the frame budget and adds evenly spaced frames to fill long gaps. Interval frames and weak cuts are dropped if they look almost the same as the previous frame.
+ffmpeg's scene detector runs on a downscaled copy of the video to find cuts and slide changes. vidlayer keeps the strongest ones that fit the frame budget and fills long gaps with evenly spaced frames. Any interval frame or weak cut that looks almost the same as the previous frame is dropped, which means that a static screen doesn't use up the budget.
 
-For the transcript, it uses the first of these it finds: a file passed with `--transcript`, a sidecar like `video.srt` or `video.en.vtt`, an embedded subtitle track, or local Whisper if it's installed.
+The transcript comes from the first source it finds, which is a file passed with `--transcript`, a sidecar like `video.srt` or `video.en.vtt`, an embedded subtitle track, or local Whisper.
 
 > [!NOTE]
-> Small edits, like one new bullet on a slide, and some slow fades aren't detected as scene changes. These only show up in interval frames, which can be well after the change on a long video with a small frame budget. To catch them, raise `--max-frames` or sample the range with `get_frames`.
+> Small edits, like one new bullet on a slide, and some slow fades aren't detected as scene changes. These only show up in interval frames, which can land well after the change on a long video with a small frame budget. To catch them, raise `--max-frames` or sample the range with `get_frames`. The plugin also doesn't include Whisper, so a video without subtitles falls back to visuals only unless you provide a subtitle file.
 
 ## Other ways to use it
 
 <details>
-<summary>Other MCP clients (Claude Desktop, Cursor)</summary>
+<summary><b>Other MCP clients</b> (Claude Desktop, Cursor)</summary>
 
 ```bash
 pip install "vidlayer[mcp] @ git+https://github.com/riceelijah/vid-layer"
 ```
 
-For Claude Desktop, add this to `claude_desktop_config.json`:
+For Claude Desktop, add this to `claude_desktop_config.json`.
 
 ```json
 { "mcpServers": { "vidlayer": { "command": "vidlayer", "args": ["mcp"] } } }
@@ -101,18 +117,18 @@ For Claude Desktop, add this to `claude_desktop_config.json`:
 </details>
 
 <details>
-<summary>File bundle, without MCP</summary>
+<summary><b>File bundle</b>, without MCP</summary>
 
 ```bash
 vidlayer build demo.mp4 -o demo.vidlayer
 ```
 
-This writes `video.md` and a folder of JPEGs. Point any tool that can read local files at `demo.vidlayer/video.md`.
+This writes `video.md` and a folder of JPEGs, which any tool that reads local files can use.
 
 </details>
 
 <details>
-<summary>Python</summary>
+<summary><b>Python</b></summary>
 
 ```python
 from vidlayer import VideoDocument, to_anthropic, to_openai, to_gemini
@@ -134,7 +150,7 @@ client.messages.create(model="claude-opus-5-5", max_tokens=16000, messages=[
 </details>
 
 <details>
-<summary>Command line</summary>
+<summary><b>Command line</b></summary>
 
 ```bash
 vidlayer ask demo.mp4 "What command gets run at the end?"   # needs ANTHROPIC_API_KEY
@@ -142,12 +158,12 @@ vidlayer render demo.mp4 --format openai > content.json
 vidlayer build "https://youtube.com/watch?v=..."            # needs vidlayer[url]
 ```
 
-Options: `--max-frames`, `--max-dim`, `--scene-threshold`, `--transcript subs.vtt`, `--no-asr`.
+Options include `--max-frames`, `--max-dim`, `--scene-threshold`, `--transcript subs.vtt`, and `--no-asr`.
 
 </details>
 
 <details>
-<summary>Optional dependencies</summary>
+<summary><b>Optional dependencies</b></summary>
 
 ```bash
 pip install -e ".[mcp]"   # MCP server
@@ -158,15 +174,13 @@ pip install -e ".[all]"   # also Whisper, yt-dlp, and the Anthropic SDK
 
 ## Token cost
 
-Claude charges roughly `width × height / 750` tokens per image.
+Claude charges roughly `width × height / 750` tokens per image, and `vidlayer build` prints an estimate for each video.
 
 | Item | Size | Tokens |
 |---|---|---|
 | One 16:9 keyframe | 768×432 | about 440 |
 | 32 keyframes (the default) | | about 14k, plus the transcript |
 | MCP storyboard with 16 thumbnails | 1536×864 | about 1.8k |
-
-`vidlayer build` prints an estimate for each video.
 
 ## Roadmap
 
