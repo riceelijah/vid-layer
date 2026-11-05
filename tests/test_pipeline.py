@@ -1,12 +1,13 @@
 import io
 import json
+import subprocess
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from vidlayer import VideoDocument, to_anthropic, to_gemini, to_openai
 from vidlayer import ffmpeg
-from vidlayer.frames import format_ts, frames_at, plan_times, storyboard
+from vidlayer.frames import format_ts, frames_at, plan_times, select_keyframes, storyboard
 from vidlayer.transcript import load_transcript, parse_subtitles
 
 
@@ -84,6 +85,41 @@ def test_storyboard(sample_video):
     doc = VideoDocument.build(sample_video, max_frames=6, asr=False)
     img = Image.open(io.BytesIO(storyboard(doc.frames, cols=3, tile_width=200)))
     assert img.width == 600
+
+
+def test_slide_changes_are_scene_changes(tmp_path):
+    """Slides share a background, so these changes score far below a hard cut."""
+    inputs = []
+    for i, box in enumerate([(60, 60, 300, 130), (60, 180, 300, 250), (60, 300, 300, 370)]):
+        im = Image.new("RGB", (640, 480), "#10131c")
+        ImageDraw.Draw(im).rectangle(box, fill="#f2f4f8")
+        im.save(tmp_path / f"{i}.png")
+        inputs += ["-loop", "1", "-t", "4", "-r", "10", "-i", str(tmp_path / f"{i}.png")]
+    video = tmp_path / "slides.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1,format=yuv420p[v]",
+         "-map", "[v]", str(video)], check=True,
+    )
+    assert ffmpeg.scene_changes(video, threshold=0.3) == []  # the old default saw nothing
+    doc = VideoDocument.build(video, max_frames=8, asr=False)
+    cuts = [f.t for f in doc.frames if f.reason == "scene-change"]
+    assert len(cuts) == 2 and abs(cuts[0] - 4.4) < 0.3 and abs(cuts[1] - 8.4) < 0.3, cuts
+
+
+def test_weak_cuts_are_deduped_but_strong_cuts_stay(tmp_path, monkeypatch):
+    video = tmp_path / "static.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=gray:s=320x240:d=10:r=10",
+         "-pix_fmt", "yuv420p", str(video)], check=True,
+    )
+    info = ffmpeg.probe(video)
+
+    def reasons(score):
+        monkeypatch.setattr(ffmpeg, "scene_changes", lambda *a, **k: [(5.0, score)])
+        return [f.reason for f in select_keyframes(video, info, max_frames=8)]
+
+    assert reasons(0.05) == ["start"]  # false cut on an unchanged picture
+    assert reasons(0.5) == ["start", "scene-change"]
 
 
 def test_format_ts_carries_when_rounding():

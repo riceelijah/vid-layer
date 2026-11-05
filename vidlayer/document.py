@@ -36,7 +36,7 @@ class VideoDocument:
         transcript: str | Path | None = None,
         max_frames: int = 32,
         max_gap: float | None = None,
-        scene_threshold: float = 0.3,
+        scene_threshold: float = ffmpeg.SCENE_THRESHOLD,
         max_dim: int = 768,
         asr: bool = True,
         asr_model: str = "base",
