@@ -153,10 +153,10 @@ def frames_at(path: str | Path, times: list[float], max_dim: int = 768) -> list[
 
 
 def format_ts(t: float) -> str:
-    t = max(0.0, t)
+    t = round(max(0.0, t), 1)  # round first so 59.96 carries to 01:00.0
     h, rem = divmod(int(t), 3600)
     m, s = divmod(rem, 60)
-    frac = int(round((t - int(t)) * 10)) % 10
+    frac = round((t - int(t)) * 10)
     return f"{h}:{m:02d}:{s:02d}.{frac}" if h else f"{m:02d}:{s:02d}.{frac}"
 
 

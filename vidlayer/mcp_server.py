@@ -67,11 +67,13 @@ def open_video(path: str, transcript_path: str | None = None, max_frames: int = 
     if not p.exists():
         raise ValueError(f"No such file: {p}")
     vid = video_id(p)
-    if vid not in _docs:
+    doc = _docs.get(vid)
+    # Reuse the cached index unless this call asks for something different.
+    transcript_path = transcript_path or (doc.meta["transcript_path"] if doc else None)
+    if doc is None or (transcript_path, max_frames) != (doc.meta["transcript_path"], doc.meta["max_frames"]):
         doc = VideoDocument.build(p, transcript=transcript_path, max_frames=max_frames, max_dim=512)
-        doc.meta["path"] = str(p)
+        doc.meta.update(path=str(p), transcript_path=transcript_path, max_frames=max_frames)
         _docs[vid] = doc
-    doc = _docs[vid]
     scenes = "\n".join(f"  {format_ts(f.t)}  ({f.reason})" for f in doc.frames)
     outline = doc.transcript_text()
     if len(outline) > 6000:

@@ -55,11 +55,12 @@ def _dedupe_rolling(segments: list[Segment]) -> list[Segment]:
     """Auto-generated captions (e.g. YouTube) repeat text across overlapping cues.
 
     Drop cues whose text is fully contained in the previous one and trim
-    prefixes that repeat the previous cue's tail.
+    prefixes that repeat the previous cue's tail. Only cues touching the previous
+    one count: a later "Yes." is someone speaking again, not a rolling caption.
     """
     out: list[Segment] = []
     for seg in segments:
-        if out:
+        if out and seg.start <= out[-1].end + 0.1:
             prev = out[-1]
             if seg.text == prev.text or seg.text in prev.text:
                 prev.end = max(prev.end, seg.end)
@@ -103,12 +104,13 @@ def load_transcript(
 ) -> tuple[list[Segment], str]:
     """Return (segments, source_description), trying the cheapest source first."""
     if transcript_path:
-        return parse_subtitles(Path(transcript_path).read_text(encoding="utf-8", errors="replace")), f"file:{Path(transcript_path).name}"
+        tp = Path(transcript_path).expanduser()
+        return parse_subtitles(tp.read_text(encoding="utf-8", errors="replace")), f"file:{tp.name}"
 
-    # Sidecar files next to the video: video.srt, video.en.vtt, ...
+    # Sidecar files next to the video: video.srt, video.en.vtt, ... (not video2.srt)
     vp = Path(video_path)
-    for candidate in sorted(vp.parent.glob(f"{vp.stem}*")):
-        if candidate.suffix.lower() in (".srt", ".vtt") and candidate.is_file():
+    for candidate in sorted(vp.parent.iterdir()):
+        if candidate.name.startswith(vp.stem + ".") and candidate.suffix.lower() in (".srt", ".vtt") and candidate.is_file():
             return parse_subtitles(candidate.read_text(encoding="utf-8", errors="replace")), f"sidecar:{candidate.name}"
 
     info = info or ffmpeg.probe(video_path)

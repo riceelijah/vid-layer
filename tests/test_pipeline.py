@@ -1,12 +1,13 @@
 import io
 import json
 
+import pytest
 from PIL import Image
 
 from vidlayer import VideoDocument, to_anthropic, to_gemini, to_openai
 from vidlayer import ffmpeg
-from vidlayer.frames import plan_times, storyboard
-from vidlayer.transcript import parse_subtitles
+from vidlayer.frames import format_ts, frames_at, plan_times, storyboard
+from vidlayer.transcript import load_transcript, parse_subtitles
 
 
 def test_probe(sample_video):
@@ -83,3 +84,55 @@ def test_storyboard(sample_video):
     doc = VideoDocument.build(sample_video, max_frames=6, asr=False)
     img = Image.open(io.BytesIO(storyboard(doc.frames, cols=3, tile_width=200)))
     assert img.width == 600
+
+
+def test_format_ts_carries_when_rounding():
+    assert format_ts(59.96) == "01:00.0"
+    assert format_ts(1.96) == "00:02.0"
+    assert format_ts(3599.96) == "1:00:00.0"
+    assert format_ts(12.34) == "00:12.3"
+
+
+def test_dedupe_keeps_repeats_that_are_not_rolling():
+    srt = (
+        "1\n00:00:01,000 --> 00:00:02,000\nDo you know the answer?\n\n"
+        "2\n00:05:00,000 --> 00:05:01,000\nknow\n"
+    )
+    assert [s.text for s in parse_subtitles(srt)] == ["Do you know the answer?", "know"]
+
+
+def test_sidecar_matching(tmp_path):
+    srt = "1\n00:00:00,000 --> 00:00:01,000\n{}\n"
+    info = ffmpeg.VideoInfo("", 1.0, 1, 1, 1.0, has_audio=False, subtitle_streams=0)
+    # A different video's subtitles must not be picked up...
+    (tmp_path / "talk2.srt").write_text(srt.format("other video"))
+    assert load_transcript(tmp_path / "talk.mp4", info=info) == ([], "none")
+    # ...while language suffixes and glob characters in the name still match.
+    (tmp_path / "clip [1080p].en.vtt").write_text(srt.format("mine"))
+    segs, source = load_transcript(tmp_path / "clip [1080p].mp4", info=info)
+    assert [s.text for s in segs] == ["mine"] and source == "sidecar:clip [1080p].en.vtt"
+
+
+def test_frame_at_very_end_decodes(sample_video):
+    # The clip's last frame is at 11.9s, so seeking to 11.95s decodes nothing.
+    assert frames_at(sample_video, [11.95])[0].jpeg
+
+
+def test_mcp_reopen_applies_new_arguments(sample_video, tmp_path):
+    pytest.importorskip("mcp")
+    from vidlayer import mcp_server
+
+    video = tmp_path / "video.mp4"
+    video.write_bytes(sample_video.read_bytes())
+    subs = tmp_path / "elsewhere.srt"
+    subs.write_text("1\n00:00:00,500 --> 00:00:02,000\nSupplied line.\n")
+
+    assert "Supplied line." not in mcp_server.open_video(str(video))[0]
+    assert "Supplied line." in mcp_server.open_video(str(video), transcript_path=str(subs))[0]
+    # Omitting it later keeps the transcript the user supplied.
+    assert "Supplied line." in mcp_server.open_video(str(video))[0]
+    assert "Keyframes: 2." in mcp_server.open_video(str(video), max_frames=2)[0]
+
+    vid = mcp_server.video_id(video)
+    assert mcp_server.get_frame(vid, 9999)[1].data
+    assert len(mcp_server.get_frames(vid, 0, 9999, count=2)) >= 4

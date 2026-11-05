@@ -110,15 +110,23 @@ def scene_changes(path: str | Path, threshold: float = 0.3, analysis_fps: float 
 def extract_frame(path: str | Path, t: float, max_dim: int = 768, quality: int = 4) -> bytes:
     """Grab a single JPEG frame at time t, scaled so its longest side <= max_dim."""
     scale = f"scale='if(gt(iw,ih),min({max_dim},iw),-2)':'if(gt(iw,ih),-2,min({max_dim},ih))'"
-    proc = _run([
-        _require("ffmpeg"), "-hide_banner", "-loglevel", "error",
-        "-ss", f"{max(t, 0):.3f}", "-i", str(path),
-        "-frames:v", "1", "-vf", scale, "-q:v", str(quality),
-        "-f", "image2pipe", "-vcodec", "mjpeg", "-",
-    ], binary_output=True)
-    if not proc.stdout:
-        raise FFmpegError(f"No frame decoded at t={t:.2f}s")
-    return proc.stdout
+    # Seeking past the last frame decodes nothing (t is near the end, or audio
+    # outlasts the video), so step back until a frame comes out.
+    detail = ""
+    for seek in dict.fromkeys(max(t - back, 0.0) for back in (0, 0.25, 1, 4, 16)):
+        try:
+            proc = _run([
+                _require("ffmpeg"), "-hide_banner", "-loglevel", "error",
+                "-ss", f"{seek:.3f}", "-i", str(path),
+                "-frames:v", "1", "-vf", scale, "-q:v", str(quality),
+                "-f", "image2pipe", "-vcodec", "mjpeg", "-",
+            ], binary_output=True)
+        except FFmpegError as exc:
+            detail = f": {exc}"
+            continue
+        if proc.stdout:
+            return proc.stdout
+    raise FFmpegError(f"No frame decoded at t={t:.2f}s{detail}")
 
 
 def extract_subtitles(path: str | Path, stream_index: int = 0) -> str | None:
