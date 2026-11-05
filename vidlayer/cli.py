@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from .document import VideoDocument
+from .ffmpeg import SCENE_THRESHOLD
 from .render import ADAPTERS
 
 
@@ -22,7 +23,7 @@ def _add_build_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--transcript", help="SRT/VTT file to use instead of auto-detection")
     p.add_argument("--max-frames", type=int, default=32, help="keyframe budget (default 32)")
     p.add_argument("--max-gap", type=float, help="max seconds between keyframes (default: duration/max-frames)")
-    p.add_argument("--scene-threshold", type=float, default=0.3, help="0-1; lower = more sensitive (default 0.3)")
+    p.add_argument("--scene-threshold", type=float, default=SCENE_THRESHOLD, help="0-1; lower = more sensitive (default %(default)s)")
     p.add_argument("--max-dim", type=int, default=768, help="longest side of each frame in px (default 768)")
     p.add_argument("--no-asr", action="store_true", help="don't run speech-to-text if no subtitles are found")
     p.add_argument("--asr-model", default="base", help="whisper model size (default base)")

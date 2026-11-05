@@ -74,16 +74,21 @@ def probe(path: str | Path) -> VideoInfo:
     )
 
 
+# Hard cuts score well above this and slide changes on a shared background land
+# around 0.04-0.2. Going lower turns continuous motion into false cuts.
+# ponytail: frame-difference scores can't see small edits like one new bullet
+# (about 0.01); those rely on interval sampling. OCR or a text diff would catch them.
+SCENE_THRESHOLD = 0.03
+
 _PTS_RE = re.compile(r"pts_time:([0-9.]+)")
 _SCORE_RE = re.compile(r"lavfi\.scene_score=([0-9.]+)")
 
 
-def scene_changes(path: str | Path, threshold: float = 0.3, analysis_fps: float = 4.0) -> list[tuple[float, float]]:
+def scene_changes(path: str | Path, threshold: float = SCENE_THRESHOLD, analysis_fps: float = 4.0) -> list[tuple[float, float]]:
     """Return [(time_seconds, scene_score)] for detected shot changes.
 
     The video is downsampled (fps + resolution) before scoring, which keeps this
-    fast even on long inputs. Hard cuts score high; slide changes on a shared
-    background score far lower (about 0.04-0.2), so the default threshold misses them.
+    fast even on long inputs.
     """
     vf = (
         f"fps={analysis_fps},scale=320:-2,"

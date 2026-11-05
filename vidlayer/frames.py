@@ -10,6 +10,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from . import ffmpeg
 
+STRONG_CUT = 0.3  # scene score of an unmistakable shot change
+
 
 @dataclass
 class Frame:
@@ -118,7 +120,7 @@ def select_keyframes(
     *,
     max_frames: int = 32,
     max_gap: float | None = None,
-    scene_threshold: float = 0.3,
+    scene_threshold: float = ffmpeg.SCENE_THRESHOLD,
     max_dim: int = 768,
     dedupe_distance: int = 4,
 ) -> list[Frame]:
@@ -135,8 +137,9 @@ def select_keyframes(
             data = ffmpeg.extract_frame(path, t, max_dim=max_dim)
         except ffmpeg.FFmpegError:
             continue
-        # Interval samples of an unchanged screen add tokens but no information.
-        if frames and reason == "interval" and near_duplicate(data, frames[-1].jpeg, dedupe_distance):
+        # Interval samples and weak cuts of an unchanged screen add tokens but no
+        # information. Strong cuts always stay.
+        if frames and score < STRONG_CUT and near_duplicate(data, frames[-1].jpeg, dedupe_distance):
             continue
         w, hgt = Image.open(io.BytesIO(data)).size
         frames.append(Frame(t=t, jpeg=data, width=w, height=hgt, reason=reason, score=score))

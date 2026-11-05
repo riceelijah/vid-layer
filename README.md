@@ -33,12 +33,14 @@ The transcript comes with it, lined up against the same timestamps:
 
 ```text
 <video source="talk.mp4" duration="01:04.0" resolution="1920x1080" fps="10.0">
-[00:00.5] keyframe (start):    [image]
+[00:00.5] keyframe (start):        [image]
 Transcript:
 [00:01.0] Today I'll show how we cut our p99 latency in half.
-[00:09.0] keyframe (interval): [image]
+[00:08.4] keyframe (scene-change): [image]
 Transcript:
 [00:09.0] Here's where we started. The median was fine, but the tail was nearly a second.
+[00:16.4] keyframe (scene-change): [image]
+Transcript:
 [00:17.0] The flame graph points at one call: we were blocked waiting on a connection.
 ...
 </video>
@@ -91,13 +93,13 @@ flowchart LR
 ```
 
 1. **Probe** the file with `ffprobe`.
-2. **Find scene changes** with ffmpeg's scene detector, run on a downscaled stream so it's fast.
-3. **Plan a frame budget**: take the strongest cuts, then fill long stretches with interval samples. Interval frames that nearly match the previous one are dropped, so a static screen doesn't burn tokens.
+2. **Find scene changes** with ffmpeg's scene detector, run on a downscaled stream so it's fast. It's sensitive enough to catch hard cuts and slide changes.
+3. **Plan a frame budget**: take the strongest cuts, then fill long stretches with interval samples. Interval frames and weak cuts that nearly match the previous frame are dropped, so a static screen doesn't burn tokens.
 4. **Get a transcript** from the cheapest source available: a `--transcript` file, a sidecar `video.srt` or `video.en.vtt`, an embedded subtitle track, or local Whisper.
 5. **Interleave** frames and speech into one `VideoDocument`, then render it for whichever model you're using.
 
 > [!NOTE]
-> The default scene threshold catches hard cuts, not gentle changes. Slides on a shared background score well below it, so they're picked up by interval sampling, which can land a few seconds after the change. In the CLI, `--scene-threshold 0.03` catches those changes at the exact moment.
+> Small edits, like one new bullet on a slide, and some slow fades don't register as scene changes. Interval sampling is what covers those, so it can land some way after the change, especially on long videos with a small frame budget. If it matters, raise `--max-frames`, or have the model sample the range with `get_frames`.
 
 ## Other ways to use it
 
@@ -188,8 +190,7 @@ Claude charges roughly `width × height / 750` tokens per image.
 
 ## Roadmap
 
-- [ ] Reliable slide-change detection without manual threshold tuning
-- [ ] OCR pass on frames, so on-screen text can be searched and fed to text-only models
+- [ ] OCR pass on frames, so on-screen text can be searched, fed to text-only models, and used to catch small slide edits
 - [ ] Speaker diarization (who said what)
 - [ ] Audio events beyond speech (music, laughter, alarms) via an audio tagger
 - [ ] Per-scene captions from a cheap vision model, for text-only LLMs and very long videos
