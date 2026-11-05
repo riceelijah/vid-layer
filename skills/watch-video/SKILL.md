@@ -21,4 +21,4 @@ You can't ingest video directly, but the `vidlayer` MCP server lets you look at 
 - Between two keyframes, the screen is *approximately* the earlier one; if something could have changed (a fast UI interaction, an animation), sample that range with `get_frames` before making claims.
 - If `open_video` reports no transcript, the video has no subtitles and no local speech-to-text is installed — say so and rely on visuals. The user can supply an `.srt`/`.vtt` via `transcript_path`, or install speech-to-text with `pip install 'vidlayer[whisper]'`.
 - Prefer a few targeted `get_frames`/`get_frame` calls over large `count` values; each image costs roughly (width × height) / 750 tokens.
-- Requires `ffmpeg` on the user's PATH. If a tool errors with "ffmpeg not found", tell the user to install it (`brew install ffmpeg`, `apt install ffmpeg`, or https://ffmpeg.org/download.html).
+- Requires `ffmpeg`. If a tool errors with "ffmpeg not found", tell the user to install it (`brew install ffmpeg`, `apt install ffmpeg`, or https://ffmpeg.org/download.html).

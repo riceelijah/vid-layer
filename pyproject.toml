@@ -9,6 +9,7 @@ description = "A video compatibility layer for LLMs: keyframes + transcript, int
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+authors = [{ name = "Elijah Rice" }]
 dependencies = ["pillow>=10"]
 
 [project.optional-dependencies]
