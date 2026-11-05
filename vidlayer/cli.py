@@ -27,6 +27,9 @@ def _add_build_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--max-dim", type=int, default=768, help="longest side of each frame in px (default 768)")
     p.add_argument("--no-asr", action="store_true", help="don't run speech-to-text if no subtitles are found")
     p.add_argument("--asr-model", default="base", help="whisper model size (default base)")
+    p.add_argument("--no-ocr", action="store_true", help="don't read on-screen text, even if tesseract is installed")
+    p.add_argument("--diarize", action="store_true", help="label who is speaking, from the audio (needs vidlayer[diarize])")
+    p.add_argument("--speakers", type=int, help="number of speakers, if known (default: guess)")
 
 
 def _resolve_input(src: str, workdir: Path) -> Path:
@@ -52,11 +55,15 @@ def _resolve_input(src: str, workdir: Path) -> Path:
 
 def _build(args: argparse.Namespace, workdir: Path) -> VideoDocument:
     path = _resolve_input(args.video, workdir)
-    doc = VideoDocument.build(
-        path, transcript=args.transcript, max_frames=args.max_frames, max_gap=args.max_gap,
-        scene_threshold=args.scene_threshold, max_dim=args.max_dim,
-        asr=not args.no_asr, asr_model=args.asr_model,
-    )
+    try:
+        doc = VideoDocument.build(
+            path, transcript=args.transcript, max_frames=args.max_frames, max_gap=args.max_gap,
+            scene_threshold=args.scene_threshold, max_dim=args.max_dim,
+            asr=not args.no_asr, asr_model=args.asr_model,
+            ocr=not args.no_ocr, diarize=args.diarize, num_speakers=args.speakers,
+        )
+    except (ValueError, OSError) as exc:  # a missing extra, or a failed model download
+        sys.exit(f"vidlayer: {exc}")
     print(
         f"vidlayer: {len(doc.frames)} keyframes, {len(doc.segments)} transcript segments "
         f"({doc.transcript_source}), ~{doc.estimated_claude_tokens():,} Claude tokens",

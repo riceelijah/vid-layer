@@ -22,6 +22,7 @@ class Segment:
 _TS = r"(\d+):(\d{2}):(\d{2})[.,](\d{1,3})|(\d{2}):(\d{2})[.,](\d{1,3})"
 _CUE_RE = re.compile(rf"(?:{_TS})\s*-->\s*(?:{_TS})")
 _TAG_RE = re.compile(r"<[^>]+>|\{\\[^}]*\}")
+_VOICE_RE = re.compile(r"<v(?:\.[^\s>]*)?\s+([^>]+)>")  # WebVTT speaker tag: <v Ana>hello</v>
 
 
 def _ts_to_seconds(groups: tuple) -> float:
@@ -43,10 +44,11 @@ def parse_subtitles(text: str) -> list[Segment]:
                 continue
             g = m.groups()
             start, end = _ts_to_seconds(g[:7]), _ts_to_seconds(g[7:])
-            body = " ".join(_TAG_RE.sub("", ln).strip() for ln in lines[i + 1:])
-            body = re.sub(r"\s+", " ", body).strip()
+            raw = " ".join(lines[i + 1:])
+            voice = _VOICE_RE.search(raw)  # ponytail: a cue with several voices keeps the first
+            body = re.sub(r"\s+", " ", _TAG_RE.sub("", raw)).strip()
             if body:
-                segments.append(Segment(start, end, body))
+                segments.append(Segment(start, end, body, voice.group(1).strip() if voice else None))
             break
     return _dedupe_rolling(segments)
 
@@ -60,7 +62,7 @@ def _dedupe_rolling(segments: list[Segment]) -> list[Segment]:
     """
     out: list[Segment] = []
     for seg in segments:
-        if out and seg.start <= out[-1].end + 0.1:
+        if out and seg.start <= out[-1].end + 0.1 and seg.speaker == out[-1].speaker:
             prev = out[-1]
             if seg.text == prev.text or seg.text in prev.text:
                 prev.end = max(prev.end, seg.end)

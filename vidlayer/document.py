@@ -10,11 +10,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterator, Union
 
 from . import ffmpeg
+from . import ocr as _ocr
 from .frames import Frame, format_ts, select_keyframes
 from .transcript import Segment, load_transcript
 
@@ -40,14 +42,34 @@ class VideoDocument:
         max_dim: int = 768,
         asr: bool = True,
         asr_model: str = "base",
+        ocr: bool = True,
+        diarize: bool = False,
+        num_speakers: int | None = None,
     ) -> "VideoDocument":
         info = ffmpeg.probe(path)
+        read_text = ocr and _ocr.available()
+        cuts = weak_cuts = None
+        if read_text:
+            # One detection pass at the lower threshold serves both, since decoding is the slow part.
+            found = ffmpeg.scene_changes(path, threshold=min(_ocr.WEAK_CUT, scene_threshold)) if info.duration > 1 else []
+            cuts = [c for c in found if c[1] > scene_threshold]
+            weak_cuts = [c for c in found if c[1] <= scene_threshold]
         frames = select_keyframes(
             path, info, max_frames=max_frames, max_gap=max_gap,
-            scene_threshold=scene_threshold, max_dim=max_dim,
+            scene_threshold=scene_threshold, max_dim=max_dim, cuts=cuts,
         )
+        if read_text:
+            frames = _ocr.annotate(path, frames, weak_cuts, duration=info.duration, max_frames=max_frames, max_dim=max_dim)
+        elif ocr:
+            print("vidlayer: tesseract not found, so on-screen text won't be read.", file=sys.stderr)
+        ocr_status = "tesseract" if read_text else "unavailable" if ocr else "off"
         segments, source = load_transcript(path, transcript, allow_asr=asr, asr_model=asr_model, info=info)
-        return cls(info=info, frames=frames, segments=segments, transcript_source=source)
+        # Speaker tags in the subtitles are better than a guess from the audio.
+        if diarize and info.has_audio and segments and not any(s.speaker for s in segments):
+            from .diarize import assign_speakers, speaker_turns
+            assign_speakers(segments, speaker_turns(path, num_speakers))
+            source += "+diarization"
+        return cls(info=info, frames=frames, segments=segments, transcript_source=source, meta={"ocr": ocr_status})
 
     # ---- views --------------------------------------------------------
     def timeline(self) -> Iterator[Union[Frame, list[Segment]]]:
@@ -86,6 +108,10 @@ class VideoDocument:
             f"Keyframes: {len(self.frames)}. Transcript: {self.transcript_source}"
             + ("" if self.segments else " (no speech transcript available; visuals only)") + ".",
         ]
+        if self.meta.get("ocr") == "tesseract":
+            lines.append("On-screen text comes from OCR and may contain errors, so check the frame for anything that matters.")
+        elif self.meta.get("ocr") == "unavailable":
+            lines.append("On-screen text was not read because tesseract isn't installed.")
         if i.title:
             lines.insert(1, f"Title: {i.title}")
         return "\n".join(lines)
@@ -102,7 +128,7 @@ class VideoDocument:
         return self.format_segments([s for s in self.segments if s.end >= start and s.start <= end])
 
     def estimated_claude_tokens(self) -> int:
-        text = sum(len(s.text) for s in self.segments) // 4 + 200
+        text = (sum(len(s.text) for s in self.segments) + sum(len(f.text or "") for f in self.frames)) // 4 + 200
         return text + sum(f.claude_tokens for f in self.frames)
 
     # ---- persistence --------------------------------------------------

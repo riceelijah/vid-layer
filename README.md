@@ -18,7 +18,7 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-vidlayer turns a video into timestamped keyframes and a transcript, so that models which only accept text and images can still work with it. The usual workaround is pasting in a transcript, which loses everything that only appears on screen, like slides, code, and demos. You can run vidlayer as an MCP server and let the model request frames itself, or send the output directly to Claude, OpenAI-compatible APIs, or Gemini.
+vidlayer turns a video into timestamped keyframes, on-screen text, and a transcript, so that models which only accept text and images can still work with it. The usual workaround is pasting in a transcript, which loses everything that only appears on screen, like slides, code, and demos. You can run vidlayer as an MCP server and let the model request frames itself, or send the output directly to Claude, OpenAI-compatible APIs, or Gemini.
 
 ## Example
 
@@ -28,17 +28,26 @@ This is the storyboard `open_video` returns for a one-minute sample talk.
   <img src="assets/storyboard.jpg" alt="Storyboard of eight slides from a sample talk, each labelled with its timestamp" width="100%">
 </p>
 
-The model also gets the transcript, lined up with the frames.
+The model also gets the on-screen text and the transcript, lined up with the frames.
 
 ```text
 <video source="talk.mp4" duration="01:04.0" resolution="1920x1080" fps="10.0">
 [00:00.5] keyframe (start):        [image]
+On-screen text:
+Cutting p99 latency in half
+A sample talk, rendered for the vidlayer demo
 Transcript:
 [00:01.0] Today I'll show how we cut our p99 latency in half.
 [00:08.4] keyframe (scene-change): [image]
+On-screen text:
+Where we started
+p50 [J 42 ms
 Transcript:
 [00:09.0] Here's where we started. The median was fine, but the tail was nearly a second.
 [00:16.4] keyframe (scene-change): [image]
+On-screen text:
+Flame graph: one call dominates
+Pool exhausted under bursts, so requests queue
 Transcript:
 [00:17.0] The flame graph points at one call: we were blocked waiting on a connection.
 ...
@@ -46,7 +55,7 @@ Transcript:
 
 ## Install
 
-You will need [uv](https://docs.astral.sh/uv/getting-started/installation/) on your PATH and [ffmpeg](https://ffmpeg.org/download.html) installed (`brew install ffmpeg` on a Mac). In Claude Code, run the command below.
+You will need [uv](https://docs.astral.sh/uv/getting-started/installation/) on your PATH and [ffmpeg](https://ffmpeg.org/download.html) installed (`brew install ffmpeg` on a Mac). [Tesseract](https://tesseract-ocr.github.io/tessdoc/Installation.html) is optional and lets vidlayer read on-screen text (`brew install tesseract`). In Claude Code, run the command below.
 
 ```text
 /plugin install vidlayer --marketplace riceelijah/vid-layer
@@ -59,7 +68,7 @@ On a version of Claude Code older than 2.1.275, add the marketplace first.
 /plugin install vidlayer@vid-layer
 ```
 
-The plugin includes the MCP server and a `watch-video` skill. Once it's installed, you can ask about a video by giving its path.
+The plugin includes the MCP server, a `watch-video` skill, and the diarization package, whose wheels cover macOS, Windows, and glibc Linux. Once it's installed, you can ask about a video by giving its path.
 
 ```text
 What's the UI bug in ~/Videos/demo.mp4 around the 3-minute mark?
@@ -69,7 +78,8 @@ What's the UI bug in ~/Videos/demo.mp4 around the 3-minute mark?
 
 | Tool | Returns |
 |---|---|
-| `open_video(path)` | Metadata, keyframe list, transcript, and a storyboard image |
+| `open_video(path)` | Metadata, keyframe list with on-screen text, transcript, and a storyboard image. Pass `diarize=True` to label who is speaking |
+| `find_text(id, query)` | Where a word or phrase appears, on screen or in speech |
 | `get_frames(id, start, end, count)` | Evenly spaced frames from a time range and the speech in it, or a single tiled image with `as_storyboard` |
 | `get_frame(id, t, max_dim)` | One high-resolution frame, useful for small text, code, and charts |
 | `get_transcript(id, start, end)` | The transcript for a time range |
@@ -84,9 +94,11 @@ flowchart LR
     P --> S[Detect scene changes]
     S --> B[Plan frame budget]
     B --> D[Drop near-duplicates]
+    D --> O["Read on-screen text<br/>add frames where it changed"]
     P --> T["Find transcript<br/>file, sidecar, embedded, Whisper"]
-    D --> DOC[VideoDocument]
-    T --> DOC
+    T --> W["Label speakers<br/>subtitle tags or audio"]
+    O --> DOC[VideoDocument]
+    W --> DOC
     DOC --> M[MCP tools]
     DOC --> A["Claude, OpenAI, Gemini<br/>content blocks"]
     DOC --> F[Markdown + JPEG bundle]
@@ -94,10 +106,12 @@ flowchart LR
 
 ffmpeg's scene detector runs on a downscaled copy of the video to find cuts and slide changes. vidlayer keeps the strongest ones that fit the frame budget and fills long gaps with evenly spaced frames. Any interval frame or weak cut that looks almost the same as the previous frame is dropped, which means that a static screen doesn't use up the budget.
 
-The transcript comes from the first source it finds, which is a file passed with `--transcript`, a sidecar like `video.srt` or `video.en.vtt`, an embedded subtitle track, or local Whisper.
+If Tesseract is installed, vidlayer reads the text on each keyframe, which makes it searchable and available to text-only models. It also checks the weak cuts that fall below the scene threshold. Adding one bullet to a slide looks almost identical to the frame before it, but its text is different, so a weak cut that shows new words gets its own frame, as long as the frame budget has room.
+
+The transcript comes from the first source it finds, which is a file passed with `--transcript`, a sidecar like `video.srt` or `video.en.vtt`, an embedded subtitle track, or local Whisper. Speaker names come from WebVTT voice tags (`<v Ana>`) when the subtitles have them. Otherwise, diarization groups the audio by voice with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), and each transcript segment is labelled `Speaker 1`, `Speaker 2`, and so on. Diarization is off by default because it is slow on long videos, and its two models (about 33 MB in total) download the first time you use it.
 
 > [!NOTE]
-> Small edits, like one new bullet on a slide, and some slow fades aren't detected as scene changes. These only show up in interval frames, which can land well after the change on a long video with a small frame budget. To catch them, raise `--max-frames` or sample the range with `get_frames`. The plugin also doesn't include Whisper, so a video without subtitles falls back to visuals only unless you provide a subtitle file.
+> OCR can misread words, reads only the keyframes, and uses Tesseract's default language. It also adds indexing time, which was about 8 seconds on 40-second test clips with constant motion, and `--no-ocr` turns it off on the command line. Changes that add no new words, like an updated chart, and some slow fades can still be missed, so raise `--max-frames` or sample the range with `get_frames` if that matters. Each transcript segment gets one speaker, which means a caption that spans a change of speaker goes to whoever talks most during it. The plugin also doesn't include Whisper, so a video without subtitles falls back to visuals only unless you provide a subtitle file, and diarization needs a transcript to label.
 
 ## Other ways to use it
 
@@ -158,7 +172,7 @@ vidlayer render demo.mp4 --format openai > content.json
 vidlayer build "https://youtube.com/watch?v=..."            # needs vidlayer[url]
 ```
 
-Options include `--max-frames`, `--max-dim`, `--scene-threshold`, `--transcript subs.vtt`, and `--no-asr`.
+Options include `--max-frames`, `--max-dim`, `--scene-threshold`, `--transcript subs.vtt`, `--no-asr`, `--no-ocr`, `--diarize`, and `--speakers 2`.
 
 </details>
 
@@ -167,6 +181,7 @@ Options include `--max-frames`, `--max-dim`, `--scene-threshold`, `--transcript 
 
 ```bash
 pip install -e ".[mcp]"   # MCP server
+pip install -e ".[diarize]"   # speaker diarization (the plugin already includes this)
 pip install -e ".[all]"   # also Whisper, yt-dlp, and the Anthropic SDK
 ```
 
@@ -182,10 +197,12 @@ Claude charges roughly `width × height / 750` tokens per image, and `vidlayer b
 | 32 keyframes (the default) | | about 14k, plus the transcript |
 | MCP storyboard with 16 thumbnails | 1536×864 | about 1.8k |
 
+On-screen text adds a little to this. The sample talk above has about 600 characters of it, which is roughly 150 tokens.
+
 ## Roadmap
 
-- [ ] OCR on frames, for searching on-screen text, text-only models, and catching small slide edits
-- [ ] Speaker diarization
+- [x] OCR on frames, for searching on-screen text, text-only models, and catching small slide edits
+- [x] Speaker diarization
 - [ ] Audio events other than speech (music, laughter, alarms)
 - [ ] Per-scene captions from a cheap vision model
 - [ ] More frames where the speaker refers to the screen
@@ -199,8 +216,8 @@ pip install -e ".[dev,mcp]"
 pytest
 ```
 
-The tests generate their own video with ffmpeg, so there are no fixture files.
+The tests generate their own video with ffmpeg, so there are no fixture files. The OCR tests are skipped if Tesseract isn't installed.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Diarization uses [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with the [pyannote segmentation 3.0](https://huggingface.co/pyannote/segmentation-3.0) and [WeSpeaker](https://github.com/wenet-e2e/wespeaker) models, which are downloaded separately and have their own licenses.
