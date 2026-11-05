@@ -178,9 +178,12 @@ def storyboard(frames: list[Frame], cols: int = 4, tile_width: int = 384) -> byt
         x, y = (i % cols) * tile_width, (i // cols) * tile_h
         sheet.paste(img.resize((tile_width, tile_h), Image.Resampling.LANCZOS), (x, y))
         label = format_ts(fr.t)
-        box = draw.textbbox((x + 4, y + 4), label, font=font)
+        # Bottom-right: the top-left corner is where slide titles and window chrome live.
+        _, _, w, h = draw.textbbox((0, 0), label, font=font)
+        pos = (x + tile_width - w - 7, y + tile_h - h - 6)
+        box = draw.textbbox(pos, label, font=font)
         draw.rectangle((box[0] - 3, box[1] - 2, box[2] + 3, box[3] + 2), fill="black")
-        draw.text((x + 4, y + 4), label, fill="yellow", font=font)
+        draw.text(pos, label, fill="yellow", font=font)
     buf = io.BytesIO()
     sheet.save(buf, format="JPEG", quality=80)
     return buf.getvalue()
