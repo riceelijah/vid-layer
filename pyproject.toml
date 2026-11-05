@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vidlayer"
-version = "0.1.0"
+version = "0.1.1"
 description = "A video compatibility layer for LLMs: keyframes + transcript, interleaved on one timeline, for Claude, OpenAI, Gemini, or any MCP client."
 readme = "README.md"
 requires-python = ">=3.10"

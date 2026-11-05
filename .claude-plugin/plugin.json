@@ -1,6 +1,6 @@
 {
   "name": "vidlayer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Let Claude watch videos: scene-aware keyframes, storyboards, and timestamped transcripts via a local MCP server.",
   "author": {
     "name": "Elijah Rice"
