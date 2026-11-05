@@ -5,3 +5,4 @@ dist/
 build/
 *.vidlayer/
 .venv/
+uv.lock
