@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vidlayer"
+version = "0.1.0"
+description = "A video compatibility layer for LLMs: keyframes + transcript, interleaved on one timeline, for Claude, OpenAI, Gemini, or any MCP client."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = ["pillow>=10"]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.2"]
+whisper = ["faster-whisper>=1.0"]
+url = ["yt-dlp"]
+claude = ["anthropic>=1.0"]
+all = ["vidlayer[mcp,whisper,url,claude]"]
+dev = ["pytest"]
+
+[project.scripts]
+vidlayer = "vidlayer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vidlayer"]
