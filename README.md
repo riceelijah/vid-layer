@@ -28,7 +28,7 @@ The `VideoDocument` doesn't depend on any provider. Each adapter (Claude, OpenAI
 
 ## Install
 
-Requires Python 3.10+ and [ffmpeg](https://ffmpeg.org/download.html) on your PATH.
+Requires Python 3.10+ and [ffmpeg](https://ffmpeg.org/download.html).
 
 ```bash
 pip install -e ".[mcp]"           # core + MCP server
@@ -39,7 +39,7 @@ pip install -e ".[all]"           # + Whisper speech-to-text, URL download (yt-d
 
 ### 1. Claude Code plugin (recommended)
 
-Needs [`uv`](https://docs.astral.sh/uv/getting-started/installation/) and `ffmpeg` on your PATH. In Claude Code:
+Needs [`uv`](https://docs.astral.sh/uv/getting-started/installation/) on your PATH and `ffmpeg` installed. In Claude Code:
 
 ```
 /plugin install vidlayer --marketplace riceelijah/vid-layer
@@ -131,3 +131,7 @@ pytest
 ```
 
 Tests generate a synthetic video with ffmpeg, so they don't need any fixtures.
+
+## License
+
+[MIT](LICENSE)
