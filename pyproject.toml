@@ -24,3 +24,8 @@ vidlayer = "vidlayer.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vidlayer"]
+
+[tool.uv]
+# Rebuild when source changes, not only when pyproject.toml does
+# (the Claude Code plugin runs this package from its folder via uvx).
+cache-keys = [{ file = "pyproject.toml" }, { file = "vidlayer/**/*.py" }]

@@ -1,0 +1,11 @@
+{
+  "name": "vid-layer",
+  "owner": { "name": "Elijah Rice" },
+  "plugins": [
+    {
+      "name": "vidlayer",
+      "source": "./",
+      "description": "Let Claude watch videos: scene-aware keyframes, storyboards, and timestamped transcripts."
+    }
+  ]
+}

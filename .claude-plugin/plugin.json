@@ -1,0 +1,9 @@
+{
+  "name": "vidlayer",
+  "version": "0.1.0",
+  "description": "Let Claude watch videos: scene-aware keyframes, storyboards, and timestamped transcripts via a local MCP server.",
+  "author": { "name": "Elijah Rice" },
+  "repository": "https://github.com/riceelijah/vid-layer",
+  "license": "MIT",
+  "keywords": ["video", "mcp", "vision", "transcript", "ffmpeg"]
+}

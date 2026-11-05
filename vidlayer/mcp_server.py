@@ -11,15 +11,19 @@ Run: `vidlayer mcp` (stdio). Works with Claude Code, Claude Desktop, and any oth
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 
 from .document import VideoDocument, video_id
+from .ffmpeg import FFmpegError
 from .frames import format_ts, frames_at, storyboard
 
 try:
     from mcp.server.mcpserver import Image, MCPServer
+    from mcp.server.mcpserver.exceptions import ToolError
 except ImportError:  # mcp < 2
     from mcp.server.fastmcp import FastMCP as MCPServer, Image  # type: ignore
+    from mcp.server.fastmcp.exceptions import ToolError  # type: ignore
 
 server = MCPServer(
     "vidlayer",
@@ -33,6 +37,18 @@ server = MCPServer(
 _docs: dict[str, VideoDocument] = {}
 
 
+def _tool(fn):
+    """Register fn as a tool, reporting expected failures (bad path, ffmpeg
+    missing, unknown id) to the model as readable errors instead of a crash."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except (ValueError, FFmpegError, OSError) as exc:
+            raise ToolError(str(exc)) from exc
+    return server.tool()(wrapper)
+
+
 def _get(vid: str) -> VideoDocument:
     if vid not in _docs:
         raise ValueError(f"Unknown video_id {vid!r}; call open_video first.")
@@ -43,7 +59,7 @@ def _clamp(doc: VideoDocument, t: float) -> float:
     return min(max(0.0, t), max(0.0, doc.info.duration - 0.05))
 
 
-@server.tool()
+@_tool
 def open_video(path: str, transcript_path: str | None = None, max_frames: int = 16) -> list:
     """Index a local video file. Returns a video_id, metadata, the list of detected
     scenes, a transcript outline, and a storyboard image of keyframes labelled with timestamps."""
@@ -67,14 +83,14 @@ def open_video(path: str, transcript_path: str | None = None, max_frames: int = 
     return [text, Image(data=storyboard(doc.frames, cols=4, tile_width=384), format="jpeg")]
 
 
-@server.tool()
+@_tool
 def get_transcript(video_id: str, start: float = 0.0, end: float | None = None) -> str:
     """Transcript text (with timestamps) between start and end seconds."""
     doc = _get(video_id)
     return doc.transcript_text(start, end if end is not None else float("inf")) or "(no speech in this range)"
 
 
-@server.tool()
+@_tool
 def get_frames(video_id: str, start: float, end: float, count: int = 6, as_storyboard: bool = False) -> list:
     """Look closely at a time range: `count` frames evenly spaced from start to end (max 20).
     Set as_storyboard=True to receive them tiled into a single image (cheaper)."""
@@ -98,7 +114,7 @@ def get_frames(video_id: str, start: float, end: float, count: int = 6, as_story
     return out
 
 
-@server.tool()
+@_tool
 def get_frame(video_id: str, t: float, max_dim: int = 1568) -> list:
     """A single frame at time t (seconds) at high resolution — use for reading small text, code, or charts."""
     doc = _get(video_id)
