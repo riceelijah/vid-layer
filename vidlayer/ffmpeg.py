@@ -19,10 +19,12 @@ class FFmpegError(RuntimeError):
 _FALLBACK_DIRS = ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin", "/snap/bin")
 
 
+def _find(binary: str) -> str | None:
+    return shutil.which(binary) or next((str(Path(d) / binary) for d in _FALLBACK_DIRS if (Path(d) / binary).is_file()), None)
+
+
 def _require(binary: str) -> str:
-    path = shutil.which(binary)
-    if not path:
-        path = next((str(Path(d) / binary) for d in _FALLBACK_DIRS if (Path(d) / binary).is_file()), None)
+    path = _find(binary)
     if not path:
         raise FFmpegError(f"`{binary}` not found on PATH. Install ffmpeg (https://ffmpeg.org/download.html).")
     return path
@@ -75,9 +77,8 @@ def probe(path: str | Path) -> VideoInfo:
 
 
 # Hard cuts score well above this and slide changes on a shared background land
-# around 0.04-0.2. Going lower turns continuous motion into false cuts.
-# ponytail: frame-difference scores can't see small edits like one new bullet
-# (about 0.01); those rely on interval sampling. OCR or a text diff would catch them.
+# around 0.04-0.2. Going lower turns continuous motion into false cuts. Small edits
+# like one new bullet score about 0.01, and ocr.annotate catches those by their text.
 SCENE_THRESHOLD = 0.03
 
 _PTS_RE = re.compile(r"pts_time:([0-9.]+)")

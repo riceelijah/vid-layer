@@ -27,6 +27,8 @@ def _walk(doc: VideoDocument, text: Callable[[str], Any], image: Callable[[Frame
             pending.append(f"[{format_ts(item.t)}] keyframe ({item.reason}):")
             flush()
             blocks.append(image(item))
+            if item.text:
+                pending.append("On-screen text:\n" + item.text)
         else:
             pending.append("Transcript:\n" + doc.format_segments(item))
     pending.append(doc.footer)
@@ -72,6 +74,8 @@ def to_markdown(doc: VideoDocument) -> str:
         if isinstance(item, Frame):
             out.append(f"### [{format_ts(item.t)}] keyframe ({item.reason})")
             out.append(f"![frame at {format_ts(item.t)}](frames/{item.t:09.2f}.jpg)")
+            if item.text:
+                out.append(f"\nOn-screen text:\n\n```text\n{item.text}\n```")
         else:
             out.append("> " + doc.format_segments(item).replace("\n", "\n> "))
         out.append("")

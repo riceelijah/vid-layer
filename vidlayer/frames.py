@@ -19,8 +19,9 @@ class Frame:
     jpeg: bytes = field(repr=False)
     width: int
     height: int
-    reason: str  # "scene-change" | "interval" | "start" | "requested"
+    reason: str  # "scene-change" | "text-change" | "interval" | "start" | "requested"
     score: float = 0.0
+    text: str | None = None  # on-screen text from OCR; None if OCR didn't run
 
     @property
     def claude_tokens(self) -> int:
@@ -123,12 +124,14 @@ def select_keyframes(
     scene_threshold: float = ffmpeg.SCENE_THRESHOLD,
     max_dim: int = 768,
     dedupe_distance: int = 4,
+    cuts: list[tuple[float, float]] | None = None,
 ) -> list[Frame]:
     duration = info.duration
     if max_gap is None:
         # Aim for roughly even coverage if there were no cuts at all.
         max_gap = max(2.0, duration / max(1, max_frames - 1))
-    cuts = ffmpeg.scene_changes(path, threshold=scene_threshold) if duration > 1 else []
+    if cuts is None:
+        cuts = ffmpeg.scene_changes(path, threshold=scene_threshold) if duration > 1 else []
     plan = plan_times(duration, cuts, max_frames, max_gap)
 
     frames: list[Frame] = []

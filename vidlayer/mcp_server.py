@@ -2,9 +2,10 @@
 
 Typical flow for the model:
   1. open_video(path)              -> metadata, scene list, transcript outline, storyboard image
-  2. get_transcript(id, start, end) -> exact words for a region
-  3. get_frames(id, start, end, n)  -> zoom in: n frames evenly spaced in a region
-  4. get_frame(id, t, max_dim)      -> one high-res frame (read small text, code, charts)
+  2. find_text(id, query)           -> where words appear on screen or in speech
+  3. get_transcript(id, start, end) -> exact words for a region
+  4. get_frames(id, start, end, n)  -> zoom in: n frames evenly spaced in a region
+  5. get_frame(id, t, max_dim)      -> one high-res frame (read small text, code, charts)
 
 Run: `vidlayer mcp` (stdio). Works with Claude Code, Claude Desktop, and any other MCP client.
 """
@@ -29,8 +30,8 @@ server = MCPServer(
     "vidlayer",
     instructions=(
         "Tools for watching videos. Start with open_video to get an overview and storyboard, "
-        "then use get_frames / get_frame to look closely at specific moments and get_transcript "
-        "for exact speech. Timestamps are in seconds."
+        "then use get_frames / get_frame to look closely at specific moments, get_transcript "
+        "for exact speech, and find_text to locate words. Timestamps are in seconds."
     ),
 )
 
@@ -60,9 +61,17 @@ def _clamp(doc: VideoDocument, t: float) -> float:
 
 
 @_tool
-def open_video(path: str, transcript_path: str | None = None, max_frames: int = 16) -> list:
-    """Index a local video file. Returns a video_id, metadata, the list of detected
-    scenes, a transcript outline, and a storyboard image of keyframes labelled with timestamps."""
+def open_video(
+    path: str,
+    transcript_path: str | None = None,
+    max_frames: int = 16,
+    diarize: bool = False,
+    num_speakers: int | None = None,
+) -> list:
+    """Index a local video file. Returns a video_id, metadata, the list of detected scenes with
+    the start of their on-screen text, a transcript outline, and a storyboard image of keyframes
+    labelled with timestamps. Set diarize=True to label who is speaking in the transcript; this
+    is slow, so only use it when the question depends on it. num_speakers helps if you know it."""
     p = Path(path).expanduser()
     if not p.exists():
         raise ValueError(f"No such file: {p}")
@@ -70,11 +79,23 @@ def open_video(path: str, transcript_path: str | None = None, max_frames: int = 
     doc = _docs.get(vid)
     # Reuse the cached index unless this call asks for something different.
     transcript_path = transcript_path or (doc.meta["transcript_path"] if doc else None)
-    if doc is None or (transcript_path, max_frames) != (doc.meta["transcript_path"], doc.meta["max_frames"]):
-        doc = VideoDocument.build(p, transcript=transcript_path, max_frames=max_frames, max_dim=512)
-        doc.meta.update(path=str(p), transcript_path=transcript_path, max_frames=max_frames)
+    diarize = diarize or (doc.meta["diarize"] if doc else False)
+    num_speakers = num_speakers or (doc.meta["num_speakers"] if doc else None)
+    wanted = (transcript_path, max_frames, diarize, num_speakers)
+    if doc is None or wanted != tuple(doc.meta[k] for k in ("transcript_path", "max_frames", "diarize", "num_speakers")):
+        doc = VideoDocument.build(
+            p, transcript=transcript_path, max_frames=max_frames, max_dim=512,
+            diarize=diarize, num_speakers=num_speakers,
+        )
+        doc.meta.update(
+            path=str(p), transcript_path=transcript_path, max_frames=max_frames,
+            diarize=diarize, num_speakers=num_speakers,
+        )
         _docs[vid] = doc
-    scenes = "\n".join(f"  {format_ts(f.t)}  ({f.reason})" for f in doc.frames)
+    scenes = "\n".join(
+        f"  {format_ts(f.t)}  ({f.reason})" + (f"  {' / '.join(f.text.splitlines())[:120]}" if f.text else "")
+        for f in doc.frames
+    )
     outline = doc.transcript_text()
     if len(outline) > 6000:
         outline = outline[:6000] + "\n... (truncated; use get_transcript with a time range)"
@@ -90,6 +111,18 @@ def get_transcript(video_id: str, start: float = 0.0, end: float | None = None) 
     """Transcript text (with timestamps) between start and end seconds."""
     doc = _get(video_id)
     return doc.transcript_text(start, end if end is not None else float("inf")) or "(no speech in this range)"
+
+
+@_tool
+def find_text(video_id: str, query: str) -> str:
+    """Find where words appear, on screen or in speech (case-insensitive). On-screen text is only
+    known for the keyframes open_video chose, and OCR can misread words."""
+    doc = _get(video_id)
+    q = query.lower()
+    hits = [
+        (f.t, f"on screen: {line}") for f in doc.frames for line in (f.text or "").splitlines() if q in line.lower()
+    ] + [(s.start, f"said: {s.text}") for s in doc.segments if q in s.text.lower()]
+    return "\n".join(f"[{format_ts(t)}] {hit}" for t, hit in sorted(hits)) or f"No matches for {query!r}."
 
 
 @_tool

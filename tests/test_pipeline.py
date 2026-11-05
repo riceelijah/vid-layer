@@ -1,14 +1,17 @@
 import io
 import json
+import shutil
 import subprocess
+import sys
 
 import pytest
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
-from vidlayer import VideoDocument, to_anthropic, to_gemini, to_openai
+from vidlayer import VideoDocument, to_anthropic, to_gemini, to_markdown, to_openai
 from vidlayer import ffmpeg
+from vidlayer.diarize import assign_speakers, speaker_turns
 from vidlayer.frames import format_ts, frames_at, plan_times, select_keyframes, storyboard
-from vidlayer.transcript import load_transcript, parse_subtitles
+from vidlayer.transcript import Segment, load_transcript, parse_subtitles
 
 
 def test_probe(sample_video):
@@ -152,6 +155,112 @@ def test_sidecar_matching(tmp_path):
 def test_frame_at_very_end_decodes(sample_video):
     # The clip's last frame is at 11.9s, so seeking to 11.95s decodes nothing.
     assert frames_at(sample_video, [11.95])[0].jpeg
+
+
+needs_tesseract = pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract not installed")
+
+
+def _slideshow(tmp_path, slides, name="slides.mp4"):
+    """Render each slide (a list of text lines) for 4s, all on one background."""
+    font = ImageFont.load_default(size=36)
+    inputs = []
+    for i, lines in enumerate(slides):
+        im = Image.new("RGB", (1280, 720), "white")
+        for row, line in enumerate(lines):
+            ImageDraw.Draw(im).text((80, 80 + row * 70), line, fill="black", font=font)
+        im.save(tmp_path / f"{name}{i}.png")
+        inputs += ["-loop", "1", "-t", "4", "-r", "10", "-i", str(tmp_path / f"{name}{i}.png")]
+    video = tmp_path / name
+    streams = "".join(f"[{i}:v]" for i in range(len(slides)))
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex",
+         f"{streams}concat=n={len(slides)}:v=1,format=yuv420p[v]", "-map", "[v]", str(video)], check=True,
+    )
+    return video
+
+
+@needs_tesseract
+def test_ocr_text_reaches_every_output(tmp_path):
+    video = _slideshow(tmp_path, [["Quarterly latency review"]])
+    doc = VideoDocument.build(video, max_frames=4, asr=False)
+    assert "latency review" in doc.frames[0].text
+    assert "latency review" in json.dumps(to_anthropic(doc))
+    assert "latency review" in to_markdown(doc)
+    doc.save(tmp_path / "out")
+    assert "latency review" in VideoDocument.load(tmp_path / "out").frames[0].text
+    assert all(f.text is None for f in VideoDocument.build(video, max_frames=4, asr=False, ocr=False).frames)
+
+
+@needs_tesseract
+def test_small_slide_edit_is_caught_by_its_text(tmp_path):
+    first = ["Migration plan", "Back up the primary database"]
+    video = _slideshow(tmp_path, [first, first + ["Rebuild every search index"]])
+    assert not [t for t, s in ffmpeg.scene_changes(video) if 3 < t < 5]  # invisible to the cut detector
+    doc = VideoDocument.build(video, max_frames=8, asr=False)
+    edits = [f for f in doc.frames if f.reason == "text-change"]
+    assert len(edits) == 1 and abs(edits[0].t - 4.4) < 0.5 and "search index" in edits[0].text, doc.frames
+
+
+@needs_tesseract
+def test_static_text_adds_no_frames(tmp_path):
+    video = _slideshow(tmp_path, [["Nothing changes here at all"]] * 3)
+    assert [f.reason for f in VideoDocument.build(video, max_frames=8, asr=False).frames] == ["start"]
+
+
+def test_missing_tesseract_only_skips_ocr(sample_video, monkeypatch, capsys):
+    monkeypatch.setattr(ffmpeg, "_find", lambda b: None if b == "tesseract" else shutil.which(b))
+    doc = VideoDocument.build(sample_video, max_frames=4, asr=False)
+    assert doc.frames and all(f.text is None for f in doc.frames)
+    assert "tesseract isn't installed" in doc.header() and "tesseract not found" in capsys.readouterr().err
+
+
+def test_vtt_voice_tags_become_speakers():
+    vtt = (
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Ana>Is it done?</v>\n\n"
+        "00:00:02.000 --> 00:00:03.000\n<v.loud Sam Lee>Is it done?</v>\n\n"
+        "00:00:09.000 --> 00:00:10.000\nNo tag here.\n"
+    )
+    segs = parse_subtitles(vtt)
+    assert [s.speaker for s in segs] == ["Ana", "Sam Lee", None]  # the same words from someone else aren't a rolling caption
+    assert VideoDocument.format_segments(segs[:1]).endswith("Ana: Is it done?")
+
+
+def test_assign_speakers_by_overlap_in_order_of_appearance():
+    segs = [Segment(0, 2, "a"), Segment(2, 6, "b"), Segment(6.5, 7, "c"), Segment(20, 21, "d")]
+    assign_speakers(segs, [(0, 3, 7), (3, 6, 2), (6, 8, 7)])
+    # Segment "b" hears speaker 7 for 1s and speaker 2 for 3s; nobody talks during "d".
+    assert [s.speaker for s in segs] == ["Speaker 1", "Speaker 2", "Speaker 1", None]
+
+
+def test_diarize_without_the_extra_says_what_to_install(sample_video, monkeypatch):
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", None)
+    with pytest.raises(ValueError, match=r"vidlayer\[diarize\]"):
+        speaker_turns(sample_video)
+
+
+def test_subtitle_speakers_are_not_overwritten_by_diarization(sample_video, tmp_path, monkeypatch):
+    subs = tmp_path / "tagged.vtt"
+    subs.write_text("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Ana>Hello.</v>\n")
+    monkeypatch.setattr("vidlayer.diarize.speaker_turns", lambda *a: pytest.fail("should not run"))
+    doc = VideoDocument.build(sample_video, transcript=subs, max_frames=2, asr=False, ocr=False, diarize=True)
+    assert doc.segments[0].speaker == "Ana" and doc.transcript_source == "file:tagged.vtt"
+
+
+def test_mcp_find_text(sample_video, tmp_path):
+    pytest.importorskip("mcp")
+    from vidlayer import mcp_server
+
+    video = tmp_path / "find.mp4"
+    video.write_bytes(sample_video.read_bytes())
+    subs = tmp_path / "find.srt"
+    subs.write_text("1\n00:00:01,000 --> 00:00:02,000\nThe Answer is here.\n")
+    mcp_server.open_video(str(video), transcript_path=str(subs))
+    vid = mcp_server.video_id(video)
+    assert mcp_server.find_text(vid, "answer") == "[00:01.0] said: The Answer is here."
+    assert "No matches" in mcp_server.find_text(vid, "absent")
+    mcp_server._docs[vid].frames[0].text = "Slide title\nDeploy steps"
+    t = format_ts(mcp_server._docs[vid].frames[0].t)
+    assert mcp_server.find_text(vid, "deploy") == f"[{t}] on screen: Deploy steps"
 
 
 def test_mcp_reopen_applies_new_arguments(sample_video, tmp_path):
