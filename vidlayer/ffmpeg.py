@@ -14,8 +14,15 @@ class FFmpegError(RuntimeError):
     pass
 
 
+# GUI apps (e.g. launched from the macOS Dock) often get a minimal PATH that
+# misses Homebrew and other common install locations.
+_FALLBACK_DIRS = ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin", "/snap/bin")
+
+
 def _require(binary: str) -> str:
     path = shutil.which(binary)
+    if not path:
+        path = next((str(Path(d) / binary) for d in _FALLBACK_DIRS if (Path(d) / binary).is_file()), None)
     if not path:
         raise FFmpegError(f"`{binary}` not found on PATH. Install ffmpeg (https://ffmpeg.org/download.html).")
     return path
